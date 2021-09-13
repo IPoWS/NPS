@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"syscall"
+	"time"
 
 	. "github.com/IPoWS/node-core/data/nodes"
 	"github.com/IPoWS/node-core/link"
@@ -36,52 +38,35 @@ func nps(w http.ResponseWriter, r *http.Request) {
 			if ok {
 				serveFile(w, r)
 			} else {
-				conn, _, _, err := link.InitLink(host + "/" + ent)
-				if err == nil {
-					conn.Close()
-					node := new(Node)
-					ip := net.ParseIP(host)
-					if ip != nil {
-						node.Ip |= uint32(ip[12]) << 24
-						node.Ip |= uint32(ip[13]) << 16
-						node.Ip |= uint32(ip[14]) << 8
-						node.Ip |= uint32(ip[15])
-						_, p, err := net.SplitHostPort(host)
-						if err == nil {
-							port, err := strconv.Atoi(p)
-							if err == nil && port > 0 && port < 65536 {
-								node.Port = uint32(port)
-								node.Entry = ent
-								node.Wsnetaddr = uint32(len(nodes.Nodes)) + 1
-								if node.Wsnetaddr == 0 {
-									http.Error(w, "500 Internal Server Error\nMax ip addr amount exceeded.", http.StatusInternalServerError)
-									log.Errorln("[/nps] max ip addr amount exceeded.")
-								}
-								Memmu.Lock()
-								nodes.Nodes[host] = node
-								Memmu.Unlock()
-								err = nodes.Save()
-								if err == nil {
-									serveFile(w, r)
-								} else {
-									http.Error(w, "500 Internal Server Error\nNode mashal error.", http.StatusInternalServerError)
-									log.Errorln("[/nps] node mashal error.")
-								}
-							}
-						}
+				newip := uint32(time.Now().UnixNano()>>16) ^ rand.Uint32()
+				for hasExist(newip) {
+					newip = uint32(time.Now().UnixNano()>>16) ^ rand.Uint32()
+				}
+				wsips = append(wsips, newip)
+				nip64 := uint64(newip)<<32 | 1
+				wsip, _, err := link.UpgradeLink(w, r, nip64)
+				if err == nil && wsip == nip64 {
+					nodes.Nodes[host] = ent
+					err = nodes.Save()
+					if err == nil {
+						serveFile(w, r)
 					} else {
-						http.Error(w, "500 Internal Server Error\nSplit host port error.", http.StatusInternalServerError)
-						log.Errorln("[/nps] split host port error.")
+						http.Error(w, "Save node file error.", http.StatusInternalServerError)
 					}
 				} else {
-					http.Error(w, "400 BAD REQUEST\nInit link error.", http.StatusBadRequest)
+					http.Error(w, "Init link error.", http.StatusBadRequest)
+					log.Errorf("[/nps] wsip: %x, nip64: %x, err: %v.", wsip, nip64, err)
 				}
 			}
 		} else {
-			http.Error(w, "400 BAD REQUEST\nInvalid entry length.", http.StatusBadRequest)
+			http.Error(w, "Invalid entry length.", http.StatusBadRequest)
 			log.Errorln("[/nps] invalid entry length.")
 		}
 	}
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
@@ -105,7 +90,12 @@ func main() {
 			}
 			nodes.Load()
 			http.HandleFunc("/nps", nps)
-			link.InitEntry("/npsent")
+			link.SetNPSUrl("ws://" + os.Args[1] + "/nps")
+			link.InitEntry("npsent")
+			go func() {
+				time.Sleep(time.Second * 5)
+				link.Register("npsent")
+			}()
 			log.Fatal(http.Serve(listener, nil))
 		}
 	} else {
