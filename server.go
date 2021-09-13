@@ -10,19 +10,24 @@ import (
 	"syscall"
 	"time"
 
-	. "github.com/IPoWS/node-core/data/nodes"
+	"github.com/IPoWS/node-core/data/nodes"
 	"github.com/IPoWS/node-core/link"
+	"github.com/IPoWS/node-core/router"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
 var (
-	nodes Nodes
+	nodesfile string
 )
 
 func serveFile(w http.ResponseWriter, r *http.Request) {
-	Filemu.RLock()
-	http.ServeFile(w, r, Nodesfile)
-	Filemu.RUnlock()
+	nodes.Filemu.RLock()
+	if nodesfile == "" {
+		nodesfile = "./nodes"
+	}
+	http.ServeFile(w, r, nodesfile)
+	nodes.Filemu.RUnlock()
 }
 
 // websocket实现
@@ -34,7 +39,7 @@ func nps(w http.ResponseWriter, r *http.Request) {
 		ent := getFirst("ent", &q)
 		if len(ent) == 6 {
 			host := getIPPortStr(r)
-			_, ok := nodes.Nodes[host]
+			_, ok := router.Allnodes.Nodes[host]
 			if ok {
 				serveFile(w, r)
 			} else {
@@ -45,9 +50,10 @@ func nps(w http.ResponseWriter, r *http.Request) {
 				wsips = append(wsips, newip)
 				nip64 := uint64(newip)<<32 | 1
 				wsip, _, err := link.UpgradeLink(w, r, nip64)
+				logrus.Infof("[/nps] get peer wsip: %x.", wsip)
 				if err == nil && wsip == nip64 {
-					nodes.Nodes[host] = ent
-					err = nodes.Save()
+					router.AddNode(host, ent, wsip)
+					err = router.SaveNodes(nodesfile)
 					if err == nil {
 						serveFile(w, r)
 					} else {
@@ -86,9 +92,12 @@ func main() {
 				}
 			}
 			if l >= 3 && os.Args[2] != "" {
-				Nodesfile = os.Args[2]
+				nodesfile = os.Args[2]
 			}
-			nodes.Load()
+			err = router.LoadNodes(nodesfile)
+			if err != nil {
+				logrus.Infof("[loadnodes] %v.", err)
+			}
 			http.HandleFunc("/nps", nps)
 			link.SetNPSUrl("ws://" + os.Args[1] + "/nps")
 			link.InitEntry("npsent")
