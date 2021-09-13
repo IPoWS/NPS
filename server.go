@@ -43,17 +43,17 @@ func nps(w http.ResponseWriter, r *http.Request) {
 			if ok {
 				serveFile(w, r)
 			} else {
-				newip := uint32(time.Now().UnixNano()>>16) ^ rand.Uint32()
+				newip := uint32(time.Now().UnixNano()) ^ rand.Uint32()
 				for hasExist(newip) {
-					newip = uint32(time.Now().UnixNano()>>16) ^ rand.Uint32()
+					newip = uint32(time.Now().UnixNano()) ^ rand.Uint32()
 				}
 				wsips = append(wsips, newip)
-				nip64 := uint64(newip)<<32 | 1
-				wsip, _, err := link.UpgradeLink(w, r, nip64)
+				nip64 := uint64(newip) << 32
+				wsip, _, err := link.UpgradeLink(w, r, nip64|1)
 				logrus.Infof("[/nps] get peer wsip: %x.", wsip)
-				if err == nil && wsip == nip64 {
-					router.AddNode(host, ent, wsip)
-					err = router.SaveNodes(nodesfile)
+				if err == nil && wsip&0xffff_ffff_0000_0000 == nip64 {
+					router.AddNode(host, ent, wsip, uint64(time.Now().UnixNano()))
+					err = router.SaveNodesBack()
 					if err == nil {
 						serveFile(w, r)
 					} else {
