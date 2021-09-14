@@ -12,22 +12,22 @@ import (
 
 	"github.com/IPoWS/node-core/data/nodes"
 	"github.com/IPoWS/node-core/link"
-	"github.com/IPoWS/node-core/router"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
 var (
 	nodesfile string
+	newnodes  = new(nodes.Nodes)
 )
 
 func serveFile(w http.ResponseWriter, r *http.Request) {
-	nodes.Filemu.RLock()
+	link.NodesList.FileMu.RLock()
 	if nodesfile == "" {
 		nodesfile = "./nodes"
 	}
 	http.ServeFile(w, r, nodesfile)
-	nodes.Filemu.RUnlock()
+	link.NodesList.FileMu.RUnlock()
 }
 
 // websocket实现
@@ -37,9 +37,10 @@ func nps(w http.ResponseWriter, r *http.Request) {
 		// 检查uid
 		q := r.URL.Query()
 		ent := getFirst("ent", &q)
+		name := getFirst("name", &q)
 		if len(ent) == 6 {
 			host := getIPPortStr(r)
-			_, ok := router.Allnodes.Nodes[host]
+			_, ok := link.NodesList.Nodes[host]
 			if ok {
 				serveFile(w, r)
 			} else {
@@ -49,11 +50,13 @@ func nps(w http.ResponseWriter, r *http.Request) {
 				}
 				wsips = append(wsips, newip)
 				nip64 := uint64(newip) << 32
-				wsip, _, err := link.UpgradeLink(w, r, nip64|1)
+				wsip, delay, err := link.UpgradeLink(w, r, nip64|1)
 				logrus.Infof("[/nps] get peer wsip: %x.", wsip)
-				if err == nil && wsip&0xffff_ffff_0000_0000 == nip64 {
-					router.AddNode(host, ent, wsip, uint64(time.Now().UnixNano()))
-					err = router.SaveNodesBack()
+				if err == nil {
+					// link.NodesList.AddNode(host, ent, wsip, name, uint64(delay))
+					newnodes.AddNode(host, ent, wsip, name, uint64(delay))
+					go link.SendNewNodes(newnodes)
+					err = link.SaveNodesBack()
 					if err == nil {
 						serveFile(w, r)
 					} else {
@@ -73,6 +76,7 @@ func nps(w http.ResponseWriter, r *http.Request) {
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
+	newnodes.Clear()
 }
 
 func main() {
@@ -94,16 +98,15 @@ func main() {
 			if l >= 3 && os.Args[2] != "" {
 				nodesfile = os.Args[2]
 			}
-			err = router.LoadNodes(nodesfile)
+			err = link.LoadNodes(nodesfile)
 			if err != nil {
 				logrus.Infof("[loadnodes] %v.", err)
 			}
 			http.HandleFunc("/nps", nps)
-			link.SetNPSUrl("ws://" + os.Args[1] + "/nps")
-			link.InitEntry("npsent")
+			link.InitEntry("ws://"+os.Args[1]+"/nps", "npsent", "saki.fumiama", 0xffff_ffff_0000_0000)
 			go func() {
 				time.Sleep(time.Second * 5)
-				link.Register("npsent")
+				link.Register("npsent", "saki.fumiama")
 			}()
 			log.Fatal(http.Serve(listener, nil))
 		}
