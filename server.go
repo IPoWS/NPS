@@ -55,10 +55,10 @@ func nps(w http.ResponseWriter, r *http.Request) {
 				if err == nil {
 					// link.NodesList.AddNode(host, ent, wsip, name, uint64(delay))
 					newnodes.AddNode(host, ent, wsip, name, uint64(delay))
-					go link.SendNewNodes(newnodes)
 					err = link.SaveNodesBack()
 					if err == nil {
 						serveFile(w, r)
+						go link.SendNewNodes(newnodes)
 					} else {
 						http.Error(w, "Save node file error.", http.StatusInternalServerError)
 					}
@@ -77,6 +77,12 @@ func nps(w http.ResponseWriter, r *http.Request) {
 func init() {
 	rand.Seed(time.Now().UnixNano())
 	newnodes.Clear()
+	t := time.NewTicker(time.Second)
+	go func() {
+		for range t.C {
+			link.SaveNodesBack()
+		}
+	}()
 }
 
 func main() {
@@ -105,8 +111,8 @@ func main() {
 			http.HandleFunc("/nps", nps)
 			link.InitEntry("ws://"+os.Args[1]+"/nps", "npsent", "saki.fumiama", 0xffff_ffff_0000_0000)
 			go func() {
-				time.Sleep(time.Second * 5)
-				link.Register("npsent", "saki.fumiama")
+				time.Sleep(time.Second)
+				link.Register()
 			}()
 			log.Fatal(http.Serve(listener, nil))
 		}
