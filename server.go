@@ -113,7 +113,6 @@ func main() {
 			go func() {
 				time.Sleep(time.Second)
 				link.Register()
-				link.ListenAccess()
 			}()
 			log.Fatal(http.Serve(listener, nil))
 		}
