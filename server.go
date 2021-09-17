@@ -12,7 +12,6 @@ import (
 
 	"github.com/IPoWS/node-core/data/nodes"
 	"github.com/IPoWS/node-core/link"
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,7 +50,7 @@ func nps(w http.ResponseWriter, r *http.Request) {
 				wsips = append(wsips, newip)
 				nip64 := uint64(newip) << 32
 				wsip, delay, err := link.UpgradeLink(w, r, nip64|1)
-				logrus.Infof("[/nps] get peer wsip: %x.", wsip)
+				log.Infof("[/nps] get peer wsip: %x.", wsip)
 				if err == nil {
 					// link.NodesList.AddNode(host, ent, wsip, name, uint64(delay))
 					newnodes.AddNode(host, ent, wsip, name, uint64(delay))
@@ -106,13 +105,14 @@ func main() {
 			}
 			err = link.LoadNodes(nodesfile)
 			if err != nil {
-				logrus.Infof("[loadnodes] %v.", err)
+				log.Infof("[loadnodes] %v.", err)
 			}
 			http.HandleFunc("/nps", nps)
 			link.InitEntry("ws://"+os.Args[1]+"/nps", "npsent", "saki.fumiama", 0xffff_ffff_0000_0000)
 			go func() {
 				time.Sleep(time.Second)
 				link.Register()
+				link.ListenAccess()
 			}()
 			log.Fatal(http.Serve(listener, nil))
 		}
