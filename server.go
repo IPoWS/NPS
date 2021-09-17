@@ -74,6 +74,7 @@ func nps(w http.ResponseWriter, r *http.Request) {
 }
 
 func init() {
+	log.SetLevel(log.DebugLevel)
 	rand.Seed(time.Now().UnixNano())
 	newnodes.Clear()
 	t := time.NewTicker(time.Second)
